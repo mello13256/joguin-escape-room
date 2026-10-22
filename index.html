@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Depósito 13 — Escape Room de Terror</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Creepster&family=VT323&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #e8e0d0;
+    font-family: 'VT323', 'Courier New', monospace; user-select: none; }
+  #jogo canvas { display: block; }
+
+  /* ---------- telas ---------- */
+  .tela { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; z-index: 50; padding: 24px; }
+  .tela.show { display: flex; }
+  #tela-menu { background: radial-gradient(ellipse at center, rgba(40,0,0,0.85) 0%, #000 70%); }
+  h1 { font-family: 'Creepster', Impact, sans-serif; font-weight: normal; font-size: clamp(56px, 11vw, 130px);
+    color: #b00000; text-shadow: 0 0 24px #600, 0 4px 0 #300; letter-spacing: 4px; animation: tremer 4s infinite; }
+  h2 { font-family: 'Creepster', Impact, sans-serif; font-weight: normal; font-size: clamp(48px, 9vw, 100px); }
+  .sub { font-size: 26px; color: #b9a98f; margin: 6px 0 22px; max-width: 760px; }
+  .controles { display: grid; grid-template-columns: auto auto; gap: 4px 22px; font-size: 22px; text-align: left;
+    background: rgba(0,0,0,0.55); border: 1px solid #3a0d0d; padding: 14px 22px; margin-bottom: 24px; }
+  .controles b { color: #ff6a50; }
+  button { font-family: 'Creepster', Impact, sans-serif; font-size: 40px; padding: 8px 46px; background: #2a0000; color: #ffdddd;
+    border: 2px solid #8a0000; cursor: pointer; letter-spacing: 3px; transition: transform .15s, background .15s; }
+  button:hover:not(:disabled) { background: #6a0000; transform: scale(1.06); }
+  button:disabled { opacity: .4; cursor: wait; }
+  #carregando { margin-top: 14px; font-size: 22px; color: #887; }
+  #tela-pausa { background: rgba(0,0,0,0.75); cursor: pointer; }
+  #tela-pausa p { font-size: 34px; }
+  #tela-fim { background: rgba(10,0,0,0.92); }
+  #tela-fim h2 { color: #c00; text-shadow: 0 0 20px #600; }
+  #tela-vitoria { background: radial-gradient(ellipse at center, #0b1a10 0%, #000 75%); }
+  #tela-vitoria h2 { color: #4dff7a; text-shadow: 0 0 20px #0a4; }
+  .stats { font-size: 28px; margin: 18px 0 30px; line-height: 1.5; }
+  .stats b { color: #fff; }
+  @keyframes tremer { 0%, 92%, 100% { transform: translate(0,0); } 93% { transform: translate(-3px, 2px); }
+    95% { transform: translate(3px, -2px); } 97% { transform: translate(-2px, -1px); } }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 10; }
+  #hud.show { display: block; }
+  #painel { position: absolute; top: 16px; left: 18px; text-shadow: 0 0 6px #000, 0 0 2px #000; }
+  #titulo-pcs { font-size: 22px; color: #9fb4c8; letter-spacing: 2px; }
+  #contador { font-size: 46px; line-height: 1; color: #cfe3ff; }
+  #contador b { color: #4dff7a; }
+  #pcs { margin: 4px 0 6px; }
+  .pc { display: inline-block; width: 22px; height: 16px; margin-right: 5px; border: 2px solid #5fb4ff; background: rgba(95,180,255,0.1); }
+  .pc.ok { background: #4dff7a; border-color: #4dff7a; box-shadow: 0 0 8px #4dff7a; }
+  #objetivo { font-size: 22px; color: #e8dcc0; max-width: 420px; }
+  #lanterna { position: absolute; bottom: 16px; left: 18px; font-size: 20px; color: #ffe9b0; text-shadow: 0 0 4px #000; }
+  #lanterna.off { color: #777; }
+  #mira { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: rgba(255,255,255,0.6); border-radius: 50%; }
+  #prompt { position: absolute; left: 50%; top: 70%; transform: translateX(-50%); font-size: 28px; background: rgba(0,0,0,0.6);
+    padding: 4px 16px; border: 1px solid rgba(255,255,255,0.2); display: none; white-space: nowrap; }
+  #aviso { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); font-family: 'Creepster', Impact, sans-serif;
+    font-size: clamp(26px, 4vw, 44px); letter-spacing: 2px; opacity: 0; transition: opacity .4s; text-shadow: 0 0 10px #000, 0 0 3px #000;
+    text-align: center; width: 90%; }
+  #aviso.show { opacity: 1; }
+  #segurar { position: absolute; left: 50%; top: 50%; width: 70px; height: 70px; margin: -35px 0 0 -35px; display: none; }
+  #segurar.show { display: block; }
+  #segurar svg { transform: rotate(-90deg); }
+  #segurar span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 30px; }
+  #perigo { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(120,0,0,0.9) 100%); transition: opacity .3s; }
+  #vinheta { position: fixed; inset: 0; pointer-events: none; z-index: 4;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(0,0,0,0.75) 100%); }
+  #grao { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 6; opacity: 0.05; }
+  #flash { position: fixed; inset: 0; pointer-events: none; z-index: 7; background: #f00; opacity: 0; }
+  #flash.on { animation: flash .6s ease-out; }
+  @keyframes flash { 0% { opacity: .45; } 100% { opacity: 0; } }
+  #fade { position: fixed; inset: 0; pointer-events: none; z-index: 40; background: #000; opacity: 0; transition: opacity 2s; }
+  #fade.on { opacity: 1; }
+  #jumpscare { position: fixed; inset: 0; z-index: 60; display: none; image-rendering: pixelated; }
+
+  /* ---------- terminal de hack ---------- */
+  #hack { position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); width: min(680px, 94vw);
+    background: rgba(0,12,4,0.88); border: 2px solid #1f8a3a; box-shadow: 0 0 25px rgba(30,255,90,0.25), inset 0 0 30px rgba(0,0,0,0.8);
+    color: #4dff7a; padding: 14px 20px 12px; display: none; font-size: 24px; }
+  #hack.show { display: block; }
+  #hack-topo { display: flex; justify-content: space-between; color: #8dffaa; border-bottom: 1px dashed #1f8a3a; padding-bottom: 6px; margin-bottom: 10px; }
+  #hack-pergunta { font-size: 28px; color: #d6ffe0; margin-bottom: 10px; }
+  #hack-opcoes .op { padding: 2px 4px; }
+  #hack-opcoes .op span { color: #ffe066; }
+  #hack-status { min-height: 26px; margin-top: 8px; font-size: 22px; }
+  #hack-status.ok { color: #4dff7a; }
+  #hack-status.erro { color: #ff4a4a; }
+  #hack-dica { font-size: 18px; color: #3fae5c; margin-top: 4px; }
+  #erro { color: #f66; font-size: 22px; margin-top: 12px; display: none; max-width: 700px; }
+</style>
+</head>
+<body>
+  <div id="jogo"></div>
+  <div id="vinheta"></div>
+  <div id="perigo"></div>
+  <canvas id="grao" width="320" height="200"></canvas>
+  <div id="flash"></div>
+  <div id="fade"></div>
+  <canvas id="jumpscare"></canvas>
+
+  <div id="hud">
+    <div id="painel">
+      <div id="titulo-pcs">COMPUTADORES HACKEADOS</div>
+      <div id="contador"><b>0</b>/5</div>
+      <div id="pcs"></div>
+      <div id="objetivo"></div>
+    </div>
+    <div id="lanterna"></div>
+    <div id="mira"></div>
+    <div id="prompt"></div>
+    <div id="aviso"></div>
+    <div id="segurar">
+      <svg width="70" height="70"><circle cx="35" cy="35" r="28" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.2)" stroke-width="6"/>
+        <circle id="segurar-arco" cx="35" cy="35" r="28" fill="none" stroke="#4dff7a" stroke-width="6" stroke-dasharray="176" stroke-dashoffset="176"/></svg>
+      <span>E</span>
+    </div>
+    <div id="hack">
+      <div id="hack-topo"><span id="hack-titulo"></span><span id="hack-prog"></span></div>
+      <div id="hack-pergunta"></div>
+      <div id="hack-opcoes"></div>
+      <div id="hack-status"></div>
+      <div id="hack-dica">[1]-[4] responder &nbsp;•&nbsp; [W A S D] ou [Q] sair (o progresso fica salvo) &nbsp;•&nbsp; errar dispara um alarme!</div>
+    </div>
+  </div>
+
+  <div id="tela-menu" class="tela show">
+    <h1>DEPÓSITO 13</h1>
+    <p class="sub">Você acordou trancado num depósito abandonado. Algo anda pelas salas no escuro.
+      Hackeie <b>5 computadores</b> respondendo perguntas de <b>Python</b> para destrancar as saídas e fuja de carro.</p>
+    <div class="controles">
+      <b>W A S D</b><span>andar</span>
+      <b>Mouse</b><span>olhar em volta</span>
+      <b>E</b><span>hackear computador / segurar para entrar no carro</span>
+      <b>1 2 3 4</b><span>responder as perguntas</span>
+      <b>F</b><span>ligar/desligar lanterna (no escuro ele te vê menos)</span>
+      <b>Esc</b><span>pausar</span>
+    </div>
+    <button id="btn-jogar" disabled>ENTRAR</button>
+    <div id="carregando">carregando...</div>
+    <div id="erro">Não foi possível carregar o motor 3D (three.js). Verifique sua conexão com a internet e recarregue a página.</div>
+  </div>
+
+  <div id="tela-pausa" class="tela"><h2>PAUSADO</h2><p>clique para continuar</p></div>
+
+  <div id="tela-fim" class="tela">
+    <h2>VOCÊ FOI PEGO</h2>
+    <div class="stats" id="fim-stats"></div>
+    <button class="btn-denovo">TENTAR DE NOVO</button>
+  </div>
+
+  <div id="tela-vitoria" class="tela">
+    <h2>VOCÊ ESCAPOU!</h2>
+    <p class="sub">O motor pegou de primeira. Pelo retrovisor, dois olhos vermelhos ficam cada vez menores...</p>
+    <div class="stats" id="vit-stats"></div>
+    <button class="btn-denovo">JOGAR DE NOVO</button>
+  </div>
+
+  <!-- scripts sem dependência do three.js -->
+  <script src="js/perguntas.js"></script>
+  <script src="js/mapa.js"></script>
+  <script src="js/texturas.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/jumpscare.js"></script>
+
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+  <script type="module">
+    // Carrega o three.js (módulo) e depois os scripts do jogo, em ordem.
+    // Assim o jogo funciona até abrindo o index.html direto no navegador (precisa de internet).
+    try {
+      const THREE = await import('three');
+      window.THREE = THREE;
+      for (const src of ['js/criatura.js', 'js/jogo.js']) {
+        await new Promise((ok, fail) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.onload = ok;
+          s.onerror = () => fail(new Error('falha ao carregar ' + src));
+          document.body.appendChild(s);
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      document.getElementById('carregando').style.display = 'none';
+      document.getElementById('erro').style.display = 'block';
+    }
+  </script>
+</body>
+</html>
