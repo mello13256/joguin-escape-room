@@ -26,6 +26,8 @@ anda devagar pelas salas e, se te vê, corre atrás de você 25% mais rápido qu
 
 ## Como jogar
 
+**Online:** https://mello13256.github.io/joguin-escape-room/
+
 Abra o `index.html` no navegador (Chrome, Edge ou Firefox). O three.js é carregado pela internet (CDN jsDelivr),
 então é preciso estar online.
 
