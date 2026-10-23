@@ -28,10 +28,11 @@ anda devagar pelas salas e, se te vê, corre atrás de você 25% mais rápido qu
 
 **Online:** https://mello13256.github.io/joguin-escape-room/
 
-Abra o `index.html` no navegador (Chrome, Edge ou Firefox). O three.js é carregado pela internet (CDN jsDelivr),
-então é preciso estar online.
+O three.js é carregado pela internet (CDN jsDelivr), então é preciso estar online.
+Os modelos 3D e texturas só carregam quando o jogo é servido por HTTP (GitHub Pages ou servidor local).
+Abrindo o `index.html` direto do disco o jogo funciona, mas com os modelos simples feitos por código.
 
-Se preferir servir os arquivos localmente:
+Para rodar localmente:
 
 ```bash
 python -m http.server 8000
@@ -49,8 +50,21 @@ js/audio.js       todos os sons sintetizados com WebAudio (passos, grito, alarme
 js/jumpscare.js   gerador de pixel art aleatória animada para o jumpscare
 js/criatura.js    modelo 3D e inteligência da criatura
 js/jogo.js        mundo 3D, jogador, computadores, portas, carro e regras do jogo
+modelos/*.glb     modelos 3D (criatura, portões, mesas, monitores, caixas, barris, carro...)
+texturas/*.jpg    texturas fotográficas de concreto, asfalto e ferrugem
 ```
 
-Não tem nenhum arquivo de imagem ou som: tudo é gerado pelo código.
+Os sons são todos sintetizados pelo código.
 Para mudar as perguntas, edite `js/perguntas.js`. O índice `r` é a posição da resposta certa,
 e as opções são embaralhadas durante o jogo.
+
+## Créditos dos modelos e texturas
+
+- Objetos do cenário (portão de enrolar, luminárias, mesa, TV antiga, caixotes, barris, caixas,
+  cadeira de rodas, quadro de energia, lixeira, carrinho, luminária externa, carro coberto):
+  [Poly Haven](https://polyhaven.com), licença CC0.
+- Texturas de concreto, asfalto e ferrugem: [ambientCG](https://ambientcg.com), licença CC0
+  (Concrete044B, Concrete035, Concrete033, Asphalt026C, Rust004).
+- Carro de fuga: [Kenney Car Kit](https://kenney.nl/assets/car-kit), licença CC0.
+- Base da criatura: personagem "X Bot" e animações do [Mixamo](https://www.mixamo.com)
+  (Adobe), na versão incluída nos exemplos do three.js, deformada e repintada para o jogo.

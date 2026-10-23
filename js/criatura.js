@@ -18,7 +18,149 @@ window.Criatura = class Criatura {
     this.speedNow = 0;
     this.yaw = 0;
     this.twitch = { t: 0, x: 0, y: 0, z: 0 };
-    this.build(scene);
+    const gltf = window.MODELOS && window.MODELOS.criatura_xbot;
+    if (gltf) this.buildGLTF(scene, gltf);
+    else this.build(scene);
+  }
+
+  // Versão com modelo animado (andar / correr / parado), deformado para ficar alto e magro.
+  buildGLTF(scene, gltf) {
+    const model = gltf.scene;
+    const pele = new THREE.MeshStandardMaterial({ color: 0x0b0908, roughness: 0.88, metalness: 0.05 });
+    const juntas = new THREE.MeshStandardMaterial({ color: 0x141110, roughness: 0.7 });
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = /joint/i.test(o.name) ? juntas : pele;
+      o.castShadow = true;
+      o.frustumCulled = false;
+    });
+    const bone = (n) => model.getObjectByName('mixamorig' + n);
+
+    // membros e pescoço mais compridos: afasta as juntas (os clipes não mexem nessas posições)
+    const alonga = { LeftForeArm: 1.35, RightForeArm: 1.35, LeftHand: 1.3, RightHand: 1.3, Head: 1.7, LeftLeg: 1.08, RightLeg: 1.08 };
+    for (const [n, k] of Object.entries(alonga)) {
+      const b = bone(n);
+      if (b) b.position.multiplyScalar(k);
+    }
+    const clips = gltf.animations.map((c) => {
+      const clip = c.clone();
+      clip.tracks = clip.tracks.filter((t) => !t.name.endsWith('.scale') && (!t.name.endsWith('.position') || t.name.startsWith('mixamorigHips')));
+      return clip;
+    });
+
+    const root = new THREE.Group();
+    model.scale.setScalar(1.12);
+    root.add(model);
+    scene.add(root);
+    root.updateMatrixWorld(true);
+
+    // rosto: olhos vermelhos, boca com dentes (preso ao osso da cabeça, em metros)
+    const head = bone('Head');
+    const face = new THREE.Group();
+    face.scale.setScalar(1 / head.getWorldScale(new THREE.Vector3()).x);
+    head.add(face);
+    const olhoMat = new THREE.MeshBasicMaterial({ color: 0xff2a10 });
+    this.eyes = [-1, 1].map((s) => {
+      const e = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), olhoMat);
+      e.position.set(0.045 * s, 0.2, 0.105);
+      e.scale.set(1.2, 0.45, 0.6);
+      e.rotation.z = -0.35 * s; // olhos em fenda, inclinados
+      face.add(e);
+      return e;
+    });
+    // boca larga com dentes, um pouco abaixo dos olhos
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.03), new THREE.MeshBasicMaterial({ color: 0x1a0000 }));
+    mouth.position.set(0, 0.105, 0.11);
+    face.add(mouth);
+    this.mouth = mouth;
+    const dente = new THREE.MeshStandardMaterial({ color: 0xd8d0b8, roughness: 0.4 });
+    for (let k = 0; k < 9; k++) {
+      const t = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.03, 4), dente);
+      t.position.set(-0.064 + k * 0.016, 0.128, 0.124);
+      t.rotation.x = Math.PI;
+      face.add(t);
+      const b = t.clone();
+      b.position.y = 0.082;
+      b.rotation.x = 0;
+      face.add(b);
+    }
+    const glow = new THREE.PointLight(0xff2000, 1.2, 3.5, 2);
+    glow.position.set(0, 0.2, 0.3);
+    face.add(glow);
+    this.glow = glow;
+
+    // garras nas mãos
+    const osso = new THREE.MeshStandardMaterial({ color: 0x8c8676, roughness: 0.6 });
+    for (const lado of ['LeftHand', 'RightHand']) {
+      const h = bone(lado);
+      const g = new THREE.Group();
+      g.scale.setScalar(1 / h.getWorldScale(new THREE.Vector3()).x);
+      h.add(g);
+      for (let k = 0; k < 3; k++) {
+        const c = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.24, 5), osso);
+        c.position.set((k - 1) * 0.025, 0.2, 0.01);
+        c.castShadow = true;
+        g.add(c);
+      }
+    }
+
+    this.mixer = new THREE.AnimationMixer(model);
+    const acao = (nome) => {
+      const clip = clips.find((c) => c.name === nome);
+      const a = this.mixer.clipAction(clip);
+      a.play();
+      a.setEffectiveWeight(nome === 'idle' ? 1 : 0);
+      return a;
+    };
+    this.actions = { idle: acao('idle'), walk: acao('walk'), run: acao('run') };
+    // velocidade (m/s) em que cada clipe parece natural nesta escala
+    this.clipSpeed = { idle: 1, walk: 1.5, run: 4.0 };
+    this.current = 'idle';
+    this.headBone = head;
+    this.root = root;
+    this.head = face;
+    this.twitchQ = new THREE.Quaternion();
+    this.twitchE = new THREE.Euler();
+  }
+
+  setAction(nome) {
+    if (nome === this.current) return;
+    const de = this.actions[this.current], para = this.actions[nome];
+    para.reset();
+    para.setEffectiveWeight(1);
+    para.crossFadeFrom(de, 0.3, false);
+    this.current = nome;
+  }
+
+  animateGLTF(dt) {
+    const sp = this.speedNow;
+    const chasing = this.state === 'chase';
+    this.root.rotation.y = this.yaw;
+    const nome = sp <= 0.05 ? 'idle' : sp > 3 ? 'run' : 'walk';
+    this.setAction(nome);
+    const a = this.actions[nome];
+    if (nome !== 'idle') a.timeScale = Math.max(0.6, Math.min(1.7, sp / this.clipSpeed[nome]));
+    const meio = a.getClip().duration / 2;
+    const antes = Math.floor(a.time / meio);
+    this.mixer.update(dt);
+    if (nome !== 'idle' && Math.floor(a.time / meio) !== antes) this.mundo.onStep(chasing);
+
+    // espasmos da cabeça por cima da animação
+    this.twitch.t -= dt;
+    if (this.twitch.t <= 0) {
+      this.twitch.t = 0.3 + Math.random() * (chasing ? 0.6 : 2.5);
+      const k = Math.random() < 0.35 ? 1 : 0.25;
+      this.twitch.x = (Math.random() - 0.5) * 0.5 * k;
+      this.twitch.y = (Math.random() - 0.5) * 0.8 * k;
+      this.twitch.z = (Math.random() - 0.5) * 1.0 * k;
+    }
+    const r = Math.min(1, dt * 18), e = this.twitchE;
+    // cabeça sempre um pouco abaixada (olhar de cima), mais ainda correndo
+    const baixa = chasing ? 0.45 : 0.3;
+    e.set(e.x + (this.twitch.x + baixa - e.x) * r, e.y + (this.twitch.y - e.y) * r, e.z + (this.twitch.z - e.z) * r);
+    this.headBone.quaternion.multiply(this.twitchQ.setFromEuler(e));
+    this.mouth.scale.y = chasing ? 1.6 + Math.sin(performance.now() / 60) * 0.5 : 1;
+    this.glow.intensity = chasing ? 2.5 : 1.2;
   }
 
   build(scene) {
@@ -308,6 +450,7 @@ window.Criatura = class Criatura {
 
   // ---------- animação ----------
   animate(dt) {
+    if (this.mixer) return this.animateGLTF(dt);
     const sp = this.speedNow;
     const chasing = this.state === 'chase';
     this.root.rotation.y = this.yaw;

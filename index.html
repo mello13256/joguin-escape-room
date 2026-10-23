@@ -166,14 +166,50 @@
   <script src="js/jumpscare.js"></script>
 
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    } }
   </script>
   <script type="module">
-    // Carrega o three.js (módulo) e depois os scripts do jogo, em ordem.
-    // Assim o jogo funciona até abrindo o index.html direto no navegador (precisa de internet).
+    // Carrega o three.js, os modelos 3D (modelos/*.glb), as texturas (texturas/*.jpg)
+    // e depois os scripts do jogo, em ordem. Se os modelos não carregarem (por exemplo,
+    // abrindo o index.html direto do disco), o jogo usa as versões feitas por código.
+    const MODELOS = [
+      'criatura_xbot', 'rollershutter_door', 'caged_hanging_light', 'metal_office_desk', 'television_02',
+      'cardboard_box_01', 'wooden_crate_01', 'wooden_crate_02', 'plastic_crate_03', 'old_military_crate',
+      'barrel_01', 'barrel_03', 'wheelchair_01', 'power_box_01', 'metal_trash_can', 'security_light',
+      'covered_car', 'industrial_storage_cart', 'carro_sedan',
+    ];
+    const MATERIAIS = ['Concrete044B', 'Concrete035', 'Concrete033', 'Asphalt026C', 'Rust004'];
+    const status = document.getElementById('carregando');
     try {
       const THREE = await import('three');
       window.THREE = THREE;
+      window.MODELOS = {};
+      window.MATERIAIS_PBR = {};
+      try {
+        const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+        const { MeshoptDecoder } = await import('three/addons/libs/meshopt_decoder.module.js');
+        const gltf = new GLTFLoader();
+        gltf.setMeshoptDecoder(MeshoptDecoder);
+        const tl = new THREE.TextureLoader();
+        let feitos = 0;
+        const total = MODELOS.length + MATERIAIS.length * 3;
+        const conta = () => { status.textContent = `carregando modelos... ${Math.round((++feitos / total) * 100)}%`; };
+        const tarefas = MODELOS.map((n) => gltf.loadAsync(`modelos/${n}.glb`).then((g) => { window.MODELOS[n] = g; conta(); }));
+        for (const m of MATERIAIS) {
+          const mat = (window.MATERIAIS_PBR[m] = {});
+          for (const [k, arq] of [['map', 'cor'], ['normalMap', 'normal'], ['roughnessMap', 'rugosidade']]) {
+            tarefas.push(tl.loadAsync(`texturas/${m}_${arq}.jpg`).then((t) => { mat[k] = t; conta(); }));
+          }
+        }
+        const r = await Promise.allSettled(tarefas);
+        const falhas = r.filter((x) => x.status === 'rejected');
+        if (falhas.length) console.warn(`${falhas.length} arquivos não carregaram; usando versões feitas por código.`, falhas[0].reason);
+      } catch (e) {
+        console.warn('Modelos 3D indisponíveis, usando versões feitas por código.', e);
+      }
       for (const src of ['js/criatura.js', 'js/jogo.js']) {
         await new Promise((ok, fail) => {
           const s = document.createElement('script');

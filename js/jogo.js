@@ -194,17 +194,34 @@
     return t;
   }
   const T = TEXTURAS;
+  // Texturas fotográficas (ambientCG) quando carregaram; senão, as desenhadas em canvas.
+  const PBR = window.MATERIAIS_PBR || {};
+  function pbr(nome, rx, ry, fallback, extra) {
+    const m = PBR[nome];
+    if (!m || !m.map || !m.normalMap || !m.roughnessMap) return fallback;
+    const maps = {};
+    for (const k of ['map', 'normalMap', 'roughnessMap']) {
+      const t = m[k].clone();
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(rx, ry);
+      t.anisotropy = Math.min(8, maxAniso);
+      if (k === 'map') t.colorSpace = THREE.SRGBColorSpace;
+      t.needsUpdate = true;
+      maps[k] = t;
+    }
+    return new THREE.MeshStandardMaterial({ ...maps, ...extra });
+  }
   const MAT = {
-    wall: new THREE.MeshStandardMaterial({ map: tex(T.wall()), roughness: 0.92 }),
-    floor: new THREE.MeshStandardMaterial({ map: tex(T.floor(), COLS, INTERIOR_ROWS), roughness: 0.85 }),
-    ceiling: new THREE.MeshStandardMaterial({ map: tex(T.ceiling(), COLS, INTERIOR_ROWS), roughness: 1 }),
+    wall: pbr('Concrete044B', 1, 1.5, new THREE.MeshStandardMaterial({ map: tex(T.wall()), roughness: 0.92 })),
+    floor: pbr('Concrete035', COLS / 2, INTERIOR_ROWS / 2, new THREE.MeshStandardMaterial({ map: tex(T.floor(), COLS, INTERIOR_ROWS), roughness: 0.85 })),
+    ceiling: pbr('Concrete033', COLS / 2, INTERIOR_ROWS / 2, new THREE.MeshStandardMaterial({ map: tex(T.ceiling(), COLS, INTERIOR_ROWS), roughness: 1 })),
     crate: new THREE.MeshStandardMaterial({ map: tex(T.crate()), roughness: 0.9 }),
     cardboard: new THREE.MeshStandardMaterial({ map: tex(T.cardboard()), roughness: 1 }),
-    door: new THREE.MeshStandardMaterial({ map: tex(T.metal('#4b5560', false)), roughness: 0.6, metalness: 0.4 }),
+    door: pbr('Rust004', 1, 1.2, new THREE.MeshStandardMaterial({ map: tex(T.metal('#4b5560', false)), roughness: 0.6, metalness: 0.4 }), { metalness: 0.5 }),
     shutter: new THREE.MeshStandardMaterial({ map: tex(T.metal('#7a5a3a', true)), roughness: 0.6, metalness: 0.3 }),
-    rack: new THREE.MeshStandardMaterial({ color: 0x24406a, roughness: 0.6, metalness: 0.5 }),
-    rackShelf: new THREE.MeshStandardMaterial({ color: 0x8a5a18, roughness: 0.8 }),
-    asphalt: new THREE.MeshStandardMaterial({ map: tex(T.asphalt(), COLS / 2, (ROWS - INTERIOR_ROWS) / 2), roughness: 0.95 }),
+    rack: pbr('Rust004', 0.2, 1.5, new THREE.MeshStandardMaterial({ color: 0x24406a, roughness: 0.6, metalness: 0.5 }), { metalness: 0.5 }),
+    rackShelf: pbr('Rust004', 1, 0.8, new THREE.MeshStandardMaterial({ color: 0x8a5a18, roughness: 0.8 }), { metalness: 0.4 }),
+    asphalt: pbr('Asphalt026C', COLS / 3, (ROWS - INTERIOR_ROWS) / 3, new THREE.MeshStandardMaterial({ map: tex(T.asphalt(), COLS / 2, (ROWS - INTERIOR_ROWS) / 2), roughness: 0.95 })),
     grass: new THREE.MeshStandardMaterial({ map: tex(T.grass(), 60, 60), roughness: 1 }),
     fence: new THREE.MeshStandardMaterial({ map: tex(T.fence(), 1, 1.3), alphaTest: 0.5, side: THREE.DoubleSide, metalness: 0.4, roughness: 0.6 }),
     desk: new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.8 }),
@@ -214,6 +231,33 @@
     lampOff: new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.6 }),
     pole: new THREE.MeshStandardMaterial({ color: 0x333438, roughness: 0.5, metalness: 0.6 }),
   };
+
+  // ---------- modelos 3D (modelos/*.glb) ----------
+  const MOD = window.MODELOS || {};
+  const tem = (...nomes) => nomes.every((n) => MOD[n]);
+  // Cópia de um modelo, centralizada em x/z e com a base em y=0.
+  // opts.fit: maior lado horizontal em metros; opts.height: altura em metros; opts.scale: escala direta.
+  function modelo(nome, opts = {}) {
+    const src = MOD[nome].scene;
+    src.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(opts.only ? src.getObjectByName(opts.only) : src);
+    const size = box.getSize(new THREE.Vector3());
+    let s = opts.scale || 1;
+    if (opts.fit) s = opts.fit / Math.max(size.x, size.z);
+    if (opts.height) s = opts.height / size.y;
+    const obj = src.clone(true);
+    if (opts.only) obj.traverse((o) => { if (o.isMesh && o.name !== opts.only) o.visible = false; });
+    obj.scale.multiplyScalar(s);
+    const c = box.getCenter(new THREE.Vector3());
+    obj.position.set(-c.x * s, -box.min.y * s, -c.z * s);
+    obj.traverse((o) => {
+      if (o.isMesh) { o.castShadow = opts.shadow !== false; o.receiveShadow = true; }
+    });
+    const g = new THREE.Group();
+    g.add(obj);
+    g.userData.size = size.multiplyScalar(s);
+    return g;
+  }
 
   // ================== CONSTRUÇÃO DO MUNDO ==================
   const W = COLS * CELL;
@@ -279,12 +323,45 @@
     scene.add(f);
   }
 
-  // caixotes
+  // caixotes: pilhas de modelos reais (ou caixas desenhadas, sem os modelos)
+  const PILHAS = [
+    ['wooden_crate_01', 'wooden_crate_02'],
+    ['barrel_01', 'barrel_03', 'metal_trash_can'],
+    ['cardboard_box_01'],
+    ['old_military_crate', 'wooden_crate_02'],
+  ];
+  // empilha cópias de um modelo em colunas dentro da célula
+  function pilha(p, nome, fit, cols, alturaMax) {
+    for (let i = 0; i < cols.length; i++) {
+      const [ox, oz] = cols[i];
+      let y = 0;
+      const n = 1 + Math.floor(Math.random() * alturaMax);
+      for (let k = 0; k < n; k++) {
+        const m = modelo(nome, { fit: fit * rand(0.92, 1.05) });
+        m.position.set(p.x + ox + rand(-0.05, 0.05), y, p.z + oz + rand(-0.05, 0.05));
+        m.rotation.y = rand(-0.15, 0.15) + (Math.random() < 0.5 ? 0 : Math.PI / 2);
+        scene.add(m);
+        y += m.userData.size.y;
+      }
+    }
+  }
   const crateGeo = new THREE.BoxGeometry(1.8, 1.8, 1.8);
   const smallCrateGeo = new THREE.BoxGeometry(1.15, 1.15, 1.15);
+  const temPilhas = PILHAS.every((l) => tem(...l));
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
     if (M[r][c] !== 'x') continue;
     const p = center(r, c);
+    if (temPilhas) {
+      const tipo = Math.floor(Math.random() * PILHAS.length);
+      const lista = PILHAS[tipo];
+      const um = () => lista[Math.floor(Math.random() * lista.length)];
+      const quatro = [[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]];
+      if (tipo === 0) { pilha(p, um(), 1.6, [[0, 0]], 2); }
+      else if (tipo === 1) { pilha(p, um(), 0.75, quatro, 2); }
+      else if (tipo === 2) { pilha(p, um(), 0.85, quatro, 3); }
+      else { pilha(p, um(), 1.5, [[0, 0]], 3); }
+      continue;
+    }
     const a = new THREE.Mesh(crateGeo, MAT.crate);
     a.position.set(p.x, 0.9, p.z);
     a.rotation.y = rand(-0.08, 0.08);
@@ -320,7 +397,12 @@
       let x = -0.85;
       while (x < 0.7) {
         const w = rand(0.3, 0.6), h = rand(0.25, 0.55), d = rand(0.5, 1.3);
-        if (Math.random() < 0.8) {
+        if (Math.random() < 0.8 && tem('cardboard_box_01')) {
+          const box = modelo('cardboard_box_01', { fit: w * 1.2, shadow: false });
+          box.position.set(x + w / 2, y + 0.025, rand(-0.25, 0.25));
+          box.rotation.y = rand(-0.2, 0.2);
+          g.add(box);
+        } else if (Math.random() < 0.8) {
           const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MAT.cardboard);
           box.position.set(x + w / 2, y + 0.025 + h / 2, rand(-0.1, 0.1));
           box.rotation.y = rand(-0.1, 0.1);
@@ -357,6 +439,8 @@
 
   // ---------- saídas (portões de enrolar) ----------
   const exits = [];
+  const exitClip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 2.62);
+  renderer.localClippingEnabled = true;
   const signTex = {
     locked: tex(T.sign('SAÍDA', '#5a0000', '#ff5050')),
     open: tex(T.sign('SAÍDA', '#003a10', '#50ff80')),
@@ -367,12 +451,33 @@
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(CELL, 0.4, CELL), MAT.wall);
     lintel.position.set(p.x, 2.8, p.z);
     scene.add(lintel);
-    const shutter = new THREE.Mesh(new THREE.BoxGeometry(CELL * 0.98, 2.6, 0.15), MAT.shutter);
-    shutter.position.set(p.x, 1.3, p.z);
-    shutter.castShadow = true;
-    scene.add(shutter);
     // lado de dentro: linha de cima (r-1) se for chão
     const inDir = at(r - 1, c) !== '#' ? -1 : 1;
+    let shutter, model = false;
+    if (tem('rollershutter_door')) {
+      // portão real; ao abrir ele sobe e é cortado na altura do batente
+      shutter = modelo('rollershutter_door', { only: 'rollershutter_door' });
+      shutter.scale.set(CELL * 0.97 / 1.08, 2.62 / 2.4, 1);
+      shutter.position.set(p.x, 0, p.z);
+      if (inDir > 0) shutter.rotation.y = Math.PI;
+      shutter.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.clippingPlanes = [exitClip];
+      });
+      model = true;
+      if (tem('security_light')) {
+        const sl = modelo('security_light', { height: 0.45 });
+        sl.position.set(p.x + 1.2, 2.45, p.z - inDir * (CELL / 2 + 0.15));
+        sl.rotation.y = inDir > 0 ? 0 : Math.PI;
+        scene.add(sl);
+      }
+    } else {
+      shutter = new THREE.Mesh(new THREE.BoxGeometry(CELL * 0.98, 2.6, 0.15), MAT.shutter);
+      shutter.position.set(p.x, 1.3, p.z);
+      shutter.castShadow = true;
+    }
+    scene.add(shutter);
     const signMat = new THREE.MeshBasicMaterial({ map: signTex.locked });
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.42), signMat);
     sign.position.set(p.x, 2.78, p.z + inDir * (CELL / 2 + 0.01));
@@ -381,7 +486,7 @@
     const light = new THREE.PointLight(0xff1a1a, 5, 8, 2);
     light.position.set(p.x, 2.5, p.z + inDir * 1.5);
     scene.add(light);
-    exits.push({ r, c, x: p.x, z: p.z, shutter, signMat, light, open: 0 });
+    exits.push({ r, c, x: p.x, z: p.z, shutter, model, signMat, light, open: 0 });
   }
 
   // ---------- lâmpadas ----------
@@ -393,14 +498,30 @@
   lampCells.forEach(([r, c], i) => {
     const p = center(r, c);
     const lit = i < 9;
-    const f = new THREE.Mesh(fixtureGeo, lit ? MAT.lampOn.clone() : MAT.lampOff);
-    f.position.set(p.x, WALL_H - 0.06, p.z);
-    f.rotation.y = Math.random() < 0.5 ? 0 : Math.PI / 2;
-    if (!lit) f.rotation.z = rand(-0.4, 0.4); // lâmpada quebrada, pendurada torta
+    let f;
+    if (tem('caged_hanging_light')) {
+      // luminária industrial pendurada por correntes; o pivô fica no teto
+      f = new THREE.Group();
+      f.position.set(p.x, WALL_H, p.z);
+      f.rotation.y = Math.random() < 0.5 ? 0 : Math.PI / 2;
+      const lum = modelo('caged_hanging_light', { shadow: false });
+      lum.position.y = -lum.userData.size.y;
+      f.add(lum);
+      const tubo = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.035, 0.035), lit ? MAT.lampOn.clone() : MAT.lampOff);
+      tubo.position.y = -lum.userData.size.y + 0.07;
+      f.add(tubo);
+      if (!lit) f.rotation.z = rand(-0.5, 0.5); // quebrada, pendurada torta
+      f.material = tubo.material;
+    } else {
+      f = new THREE.Mesh(fixtureGeo, lit ? MAT.lampOn.clone() : MAT.lampOff);
+      f.position.set(p.x, WALL_H - 0.06, p.z);
+      f.rotation.y = Math.random() < 0.5 ? 0 : Math.PI / 2;
+      if (!lit) f.rotation.z = rand(-0.4, 0.4); // lâmpada quebrada, pendurada torta
+    }
     scene.add(f);
     if (lit) {
       const l = new THREE.PointLight(0xffd29a, 14, 11, 2);
-      l.position.set(p.x, WALL_H - 0.3, p.z);
+      l.position.set(p.x, f.isGroup ? WALL_H - 0.85 : WALL_H - 0.3, p.z);
       scene.add(l);
       lamps.push({ light: l, mesh: f, base: 14, flicker: i < 4, t: Math.random() * 10, off: 0 });
     }
@@ -460,34 +581,50 @@
     const px = p.x + dc * (CELL / 2 - 0.42), pz = p.z + dr * (CELL / 2 - 0.42);
     g.position.set(px, 0, pz);
     g.rotation.y = Math.atan2(-dc, -dr); // frente (+z local) virada para o lado oposto à parede
-    // mesa
-    const top = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.75), MAT.desk);
-    top.position.y = 0.75;
-    top.castShadow = top.receiveShadow = true;
-    g.add(top);
-    for (const sx of [-0.7, 0.7]) for (const sz of [-0.32, 0.32]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.75, 0.05), MAT.plastic);
-      leg.position.set(sx, 0.375, sz);
-      g.add(leg);
-    }
-    // monitor CRT
-    const mon = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.48, 0.45), MAT.beige);
-    mon.position.set(0, 1.03, -0.12);
-    mon.castShadow = true;
-    g.add(mon);
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 192;
     const screenTex = new THREE.CanvasTexture(canvas);
     screenTex.colorSpace = THREE.SRGBColorSpace;
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.39), new THREE.MeshBasicMaterial({ map: screenTex }));
-    screen.position.set(0, 1.04, 0.106);
-    g.add(screen);
+    const screenMat = new THREE.MeshBasicMaterial({ map: screenTex });
+    if (tem('metal_office_desk', 'television_02')) {
+      // mesa de escritório de metal + monitor de tubo
+      const desk = modelo('metal_office_desk');
+      desk.scale.set(0.75, 1, 0.8);
+      g.add(desk);
+      const deskH = desk.userData.size.y;
+      const tv = modelo('television_02', { scale: 1.45 });
+      tv.position.set(0, deskH, -0.06);
+      g.add(tv);
+      const s = 1.45;
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.29 * s, 0.22 * s), screenMat);
+      screen.position.set(0, deskH + 0.255 * s, -0.06 + tv.userData.size.z / 2 + 0.004);
+      g.add(screen);
+    } else {
+      // mesa
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.75), MAT.desk);
+      top.position.y = 0.75;
+      top.castShadow = top.receiveShadow = true;
+      g.add(top);
+      for (const sx of [-0.7, 0.7]) for (const sz of [-0.32, 0.32]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.75, 0.05), MAT.plastic);
+        leg.position.set(sx, 0.375, sz);
+        g.add(leg);
+      }
+      // monitor CRT
+      const mon = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.48, 0.45), MAT.beige);
+      mon.position.set(0, 1.03, -0.12);
+      mon.castShadow = true;
+      g.add(mon);
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.39), screenMat);
+      screen.position.set(0, 1.04, 0.106);
+      g.add(screen);
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.45, 0.45), MAT.beige);
+      tower.position.set(0.55, 1.0, -0.1);
+      g.add(tower);
+    }
     const kb = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.17), MAT.plastic);
-    kb.position.set(0, 0.795, 0.2);
+    kb.position.set(0, 0.795, 0.24);
     g.add(kb);
-    const tower = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.45, 0.45), MAT.beige);
-    tower.position.set(0.55, 1.0, -0.1);
-    g.add(tower);
     const light = new THREE.PointLight(0x4f9dff, 3, 5, 2);
     light.position.set(0, 1.1, 0.6);
     g.add(light);
@@ -542,37 +679,66 @@
     const p = center(r, c);
     const g = new THREE.Group();
     g.position.set(p.x, 0, p.z);
-    const paint = new THREE.MeshStandardMaterial({ color: 0x5a1d18, roughness: 0.45, metalness: 0.5 });
-    const glass = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.1, metalness: 0.8 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.75, 1.85), paint);
-    body.position.y = 0.65;
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.62, 1.65), glass);
-    cabin.position.set(-0.2, 1.33, 0);
-    const roofC = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.06, 1.6), paint);
-    roofC.position.set(-0.2, 1.66, 0);
-    [body, cabin, roofC].forEach((m) => { m.castShadow = true; g.add(m); });
-    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.28, 16);
-    wheelGeo.rotateX(Math.PI / 2);
-    const tire = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
-    for (const sx of [-1.35, 1.35]) for (const sz of [-0.85, 0.85]) {
-      const w = new THREE.Mesh(wheelGeo, tire);
-      w.position.set(sx, 0.38, sz);
-      g.add(w);
+    let frente = 2.16;
+    if (tem('carro_sedan')) {
+      const sedan = modelo('carro_sedan', { scale: 1.6 });
+      sedan.scale.y = 0.85;
+      sedan.rotation.y = Math.PI / 2; // frente (+z do modelo) virada para +x
+      // tira a cor de brinquedo: textura dessaturada e escurecida (carro velho e sujo)
+      sedan.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.roughness = 0.7;
+        const img = o.material.map && o.material.map.image;
+        if (img && img.width) {
+          const cv = document.createElement('canvas');
+          cv.width = img.width; cv.height = img.height;
+          const cg = cv.getContext('2d');
+          cg.filter = 'saturate(0.3) brightness(0.55) sepia(0.25)';
+          cg.drawImage(img, 0, 0);
+          const t = new THREE.CanvasTexture(cv);
+          t.colorSpace = THREE.SRGBColorSpace;
+          t.flipY = o.material.map.flipY;
+          t.magFilter = o.material.map.magFilter;
+          o.material.map = t;
+        }
+      });
+      g.add(sedan);
+      frente = sedan.userData.size.z / 2;
+    } else {
+      const paint = new THREE.MeshStandardMaterial({ color: 0x5a1d18, roughness: 0.45, metalness: 0.5 });
+      const glass = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.1, metalness: 0.8 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.75, 1.85), paint);
+      body.position.y = 0.65;
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.62, 1.65), glass);
+      cabin.position.set(-0.2, 1.33, 0);
+      const roofC = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.06, 1.6), paint);
+      roofC.position.set(-0.2, 1.66, 0);
+      [body, cabin, roofC].forEach((m) => { m.castShadow = true; g.add(m); });
+      const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.28, 16);
+      wheelGeo.rotateX(Math.PI / 2);
+      const tire = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+      for (const sx of [-1.35, 1.35]) for (const sz of [-0.85, 0.85]) {
+        const w = new THREE.Mesh(wheelGeo, tire);
+        w.position.set(sx, 0.38, sz);
+        g.add(w);
+      }
     }
     const hlMat = new THREE.MeshBasicMaterial({ color: 0x333322 });
     for (const sz of [-0.6, 0.6]) {
       const hl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.36), hlMat);
-      hl.position.set(2.16, 0.75, sz);
+      hl.position.set(frente, 0.75, sz);
       g.add(hl);
     }
     const head = new THREE.SpotLight(0xfff3d0, 0, 30, 0.5, 0.5, 1.5);
-    head.position.set(2.3, 0.8, 0);
+    head.position.set(frente + 0.1, 0.8, 0);
     head.target.position.set(10, 0, 0);
     g.add(head, head.target);
     scene.add(g);
-    colliders.push({ minX: p.x - 2.2, maxX: p.x + 2.2, minZ: p.z - 0.95, maxZ: p.z + 0.95 });
+    const hx = tem('carro_sedan') ? frente - 0.05 : 2.2, hz = tem('carro_sedan') ? 1.15 : 0.95;
+    colliders.push({ minX: p.x - hx, maxX: p.x + hx, minZ: p.z - hz, maxZ: p.z + hz });
     for (const dc of [-1, 0, 1]) blockedExtra.add(key(r, c + dc));
-    car = { x: p.x, z: p.z, hlMat, head };
+    car = { x: p.x, z: p.z, hx, hz, hlMat, head };
   }
   for (const [r, c] of [[INTERIOR_ROWS + 1, 6], [INTERIOR_ROWS + 1, COLS - 7]]) {
     const p = center(r, c);
@@ -587,6 +753,83 @@
     l.position.set(p.x, 4.8, p.z);
     scene.add(l);
     colliders.push({ minX: p.x - 0.12, maxX: p.x + 0.12, minZ: p.z - 0.12, maxZ: p.z + 0.12 });
+  }
+
+  // ---------- objetos espalhados (cadeira de rodas, barris, lixeiras...) ----------
+  if (tem('covered_car')) {
+    // carro abandonado, coberto com lona, no estacionamento
+    const r = INTERIOR_ROWS + 3, c = 7;
+    const p = center(r, c);
+    const cc = modelo('covered_car', { fit: 4.2 });
+    cc.position.set(p.x, 0, p.z);
+    cc.rotation.y = Math.PI / 2;
+    scene.add(cc);
+    colliders.push({ minX: p.x - 2.1, maxX: p.x + 2.1, minZ: p.z - 0.9, maxZ: p.z + 0.9 });
+    for (const dc of [-1, 0, 1]) blockedExtra.add(key(r, c + dc));
+  }
+  const PROPS = [['wheelchair_01', 0.9], ['barrel_01', 0.65], ['metal_trash_can', 0.6], ['industrial_storage_cart', 1.1],
+    ['barrel_03', 0.65], ['plastic_crate_03', 0.7], ['old_military_crate', 1.0]];
+  if (tem(...PROPS.map((x) => x[0]))) {
+    const ps = (() => {
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (M[r][c] === 'P') return { r, c };
+    })();
+    // quantas células o jogador alcança (para não bloquear nenhum caminho)
+    const alcance = () => {
+      const seen = new Set([key(ps.r, ps.c)]);
+      const q = [[ps.r, ps.c]];
+      while (q.length) {
+        const [r, c] = q.pop();
+        for (const [dr, dc] of DIRS) {
+          const k = key(r + dr, c + dc);
+          if (seen.has(k) || solidPath(r + dr, c + dc) || at(r + dr, c + dc) === 'E') continue;
+          seen.add(k);
+          q.push([r + dr, c + dc]);
+        }
+      }
+      return seen.size;
+    };
+    const vizinhos = (r, c, f) => [-1, 0, 1].some((dr) => [-1, 0, 1].some((dc) => f(r + dr, c + dc)));
+    const candidatos = shuffle(floorCells.filter(([r, c]) =>
+      M[r][c] === '.' && Math.abs(r - ps.r) + Math.abs(c - ps.c) > 3 &&
+      DIRS.some(([a, b]) => at(r + a, c + b) === '#') &&
+      !vizinhos(r, c, (rr, cc) => 'DE'.includes(at(rr, cc)) || blockedExtra.has(key(rr, cc)))));
+    let base = alcance(), n = 0;
+    for (const [r, c] of candidatos) {
+      if (n >= 12) break;
+      if (vizinhos(r, c, (rr, cc) => blockedExtra.has(key(rr, cc)))) continue;
+      blockedExtra.add(key(r, c));
+      if (alcance() !== base - 1) { blockedExtra.delete(key(r, c)); continue; }
+      base--;
+      const [nome, fit] = PROPS[n % PROPS.length];
+      const [dr, dc] = DIRS.find(([a, b]) => at(r + a, c + b) === '#');
+      const p = center(r, c);
+      const off = CELL / 2 - fit / 2 - 0.1;
+      const x = p.x + dc * off, z = p.z + dr * off;
+      const m = modelo(nome, { fit });
+      m.position.set(x, 0, z);
+      m.rotation.y = Math.atan2(-dc, -dr) + rand(-0.4, 0.4);
+      scene.add(m);
+      colliders.push({ minX: x - fit / 2, maxX: x + fit / 2, minZ: z - fit / 2, maxZ: z + fit / 2 });
+      n++;
+    }
+  }
+  if (tem('power_box_01')) {
+    // quadros de energia presos nas paredes
+    let n = 0;
+    for (const [r, c] of shuffle(floorCells.slice())) {
+      if (n >= 6) break;
+      if (M[r][c] !== '.' || blockedExtra.has(key(r, c))) continue;
+      const dir = DIRS.find(([dr, dc]) => at(r + dr, c + dc) === '#' && r + dr < INTERIOR_ROWS - 1);
+      if (!dir) continue;
+      const [dr, dc] = dir;
+      const p = center(r, c);
+      const pb = modelo('power_box_01', { height: 0.7 });
+      const d = pb.userData.size.z / 2;
+      pb.position.set(p.x + dc * (CELL / 2 - d), 0.9, p.z + dr * (CELL / 2 - d));
+      pb.rotation.y = Math.atan2(-dc, -dr);
+      scene.add(pb);
+      n++;
+    }
   }
 
   // ================== JOGADOR ==================
@@ -878,8 +1121,8 @@
   }
   function distToCar() {
     if (!car) return Infinity;
-    const dx = Math.max(0, Math.abs(player.x - car.x) - 2.2);
-    const dz = Math.max(0, Math.abs(player.z - car.z) - 0.95);
+    const dx = Math.max(0, Math.abs(player.x - car.x) - car.hx);
+    const dz = Math.max(0, Math.abs(player.z - car.z) - car.hz);
     return Math.hypot(dx, dz);
   }
 
@@ -987,9 +1230,13 @@
     for (const e of exits) {
       if (exitsOpen && e.open < 1) {
         e.open = Math.min(1, e.open + dt / 3);
-        const s = 1 - 0.94 * e.open;
-        e.shutter.scale.y = s;
-        e.shutter.position.y = 2.6 - (2.6 * s) / 2;
+        if (e.model) {
+          e.shutter.position.y = e.open * 2.6;
+        } else {
+          const s = 1 - 0.94 * e.open;
+          e.shutter.scale.y = s;
+          e.shutter.position.y = 2.6 - (2.6 * s) / 2;
+        }
       }
     }
 
