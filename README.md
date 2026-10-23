@@ -66,5 +66,7 @@ e as opções são embaralhadas durante o jogo.
 - Texturas de concreto, asfalto e ferrugem: [ambientCG](https://ambientcg.com), licença CC0
   (Concrete044B, Concrete035, Concrete033, Asphalt026C, Rust004).
 - Carro de fuga: [Kenney Car Kit](https://kenney.nl/assets/car-kit), licença CC0.
-- Base da criatura: personagem "X Bot" e animações do [Mixamo](https://www.mixamo.com)
-  (Adobe), na versão incluída nos exemplos do three.js, deformada e repintada para o jogo.
+- Criatura: ["The Human Deer"](https://sketchfab.com/3d-models/the-human-deer-7644694337404bb18eb68e6b637740a1)
+  por **ceeleste**, licença [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+  Modificações: arquivo otimizado para a web (texturas reduzidas, malha simplificada) e
+  animações de andar/correr feitas por código sobre o esqueleto original.

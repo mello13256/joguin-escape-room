@@ -29,6 +29,8 @@
   button:hover:not(:disabled) { background: #6a0000; transform: scale(1.06); }
   button:disabled { opacity: .4; cursor: wait; }
   #carregando { margin-top: 14px; font-size: 22px; color: #887; }
+  #creditos { position: absolute; bottom: 10px; left: 0; right: 0; font-size: 17px; color: #6a5f55; }
+  #creditos a { color: #8a7a6a; }
   #tela-pausa { background: rgba(0,0,0,0.75); cursor: pointer; }
   #tela-pausa p { font-size: 34px; }
   #tela-fim { background: rgba(10,0,0,0.92); }
@@ -141,6 +143,8 @@
     <button id="btn-jogar" disabled>ENTRAR</button>
     <div id="carregando">carregando...</div>
     <div id="erro">Não foi possível carregar o motor 3D (three.js). Verifique sua conexão com a internet e recarregue a página.</div>
+    <div id="creditos">Criatura: "The Human Deer" por <a href="https://sketchfab.com/3d-models/the-human-deer-7644694337404bb18eb68e6b637740a1" target="_blank" rel="noopener">ceeleste</a> (CC BY 4.0) •
+      cenário: Poly Haven, ambientCG e Kenney (CC0)</div>
   </div>
 
   <div id="tela-pausa" class="tela"><h2>PAUSADO</h2><p>clique para continuar</p></div>
@@ -176,7 +180,7 @@
     // e depois os scripts do jogo, em ordem. Se os modelos não carregarem (por exemplo,
     // abrindo o index.html direto do disco), o jogo usa as versões feitas por código.
     const MODELOS = [
-      'criatura_xbot', 'rollershutter_door', 'caged_hanging_light', 'metal_office_desk', 'television_02',
+      'criatura_cervo', 'rollershutter_door', 'caged_hanging_light', 'metal_office_desk', 'television_02',
       'cardboard_box_01', 'wooden_crate_01', 'wooden_crate_02', 'plastic_crate_03', 'old_military_crate',
       'barrel_01', 'barrel_03', 'wheelchair_01', 'power_box_01', 'metal_trash_can', 'security_light',
       'covered_car', 'industrial_storage_cart', 'carro_sedan',
